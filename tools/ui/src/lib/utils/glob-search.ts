@@ -7,8 +7,7 @@
 import { lastPathSegment } from './path-display';
 import { buildGlobSearchArgs, joinPath, rankEntries } from './working-directory';
 import { GLOB, PATH_SEPARATOR, SEARCH } from '$lib/constants';
-import { BuiltInTool, GlobSearchType } from '$lib/enums';
-import { ToolsService } from '$lib/services/tools.service';
+import { GlobSearchType } from '$lib/enums';
 import type {
 	GlobEntry,
 	GlobEntryResult,
@@ -34,32 +33,8 @@ export async function runGlobSearch(
 	limit: number,
 	signal: AbortSignal
 ): Promise<GlobSearchResult> {
-	const key = `${type}\u0000${args.path}\u0000${args.include}\u0000${args.maxDepth}\u0000${limit}`;
-	const cached = searchCache.get(key);
-
-	if (cached && Date.now() - cached.at < SEARCH_CACHE_TTL_MS) {
-		return { base: cached.base, entries: cached.results };
-	}
-
-	const res = await ToolsService.executeToolRaw(
-		BuiltInTool.SERVER_FILE_GLOB_SEARCH,
-		{ include: args.include, limit, max_depth: args.maxDepth, path: args.path, type },
-		signal
-	);
-
-	if (typeof res.error === 'string') return { base: '', entries: [], error: res.error };
-
-	const base = typeof res.base === 'string' ? res.base : '';
-	const entries = Array.isArray(res.entries) ? (res.entries as GlobEntry[]) : [];
-	const now = Date.now();
-
-	// prune stale entries so the short-lived cache cannot grow unbounded
-	for (const [k, v] of searchCache) {
-		if (now - v.at >= SEARCH_CACHE_TTL_MS) searchCache.delete(k);
-	}
-	searchCache.set(key, { at: now, base, results: entries });
-
-	return { base, entries };
+	// No server-side file_glob_search tool on an OpenAI-compatible server.
+	return { base: '', entries: [] };
 }
 
 function toEntryResult(e: GlobEntry, base: string): GlobEntryResult {

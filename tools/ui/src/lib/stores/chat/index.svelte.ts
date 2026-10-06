@@ -779,16 +779,7 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 
 	async stopGenerationForChat(convId: string): Promise<void> {
 		await this.savePartialResponseIfNeeded(convId);
-		// tell the server to stop the generation, not just drop the HTTP socket. without this the
-		// detached drain keeps producing tokens until eos or max_tokens. use the frozen identity
-		// captured when the session started, not the live dropdown
-		const streamStateForStop = this.chatStreamingStates.get(convId);
-		const modelForStop = streamStateForStop?.model ?? ChatService.getStreamState(convId)?.model;
-
-		void ChatService.cancelServerStream(convId, modelForStop);
-		// an explicit stop leaves nothing to resume and kills a pending resume retry
-		ChatService.clearStreamState(convId);
-		this.streams.cancelResumeRetry(convId);
+		// abort the HTTP request to stop generation
 		this.abortRequest(convId);
 		this.setChatLoading(convId, false);
 		this.clearChatStreaming(convId);
@@ -1053,8 +1044,6 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 
 				if (onComplete) onComplete(streamedContent);
 
-				if (serverStore.isRouterMode) modelsStore.fetchRouterModels().catch(console.error);
-
 				// Pre-encode conversation in KV cache for faster next turn
 				if (settingsStore.config.preEncodeConversation) {
 					this.triggerPreEncode(
@@ -1198,8 +1187,6 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 					cleanupStreamingState();
 
 					if (onComplete) await onComplete(content);
-
-					if (serverStore.isRouterMode) modelsStore.fetchRouterModels().catch(console.error);
 
 					// Generate LLM based title for new conversations (avoids stale reference
 					// issue when user switches conversations while streaming)
@@ -1412,9 +1399,7 @@ class ChatStore implements ChatStreamHost, ChatFlowsHost {
 		const signal = this.preEncodeAbortController.signal;
 
 		try {
-			const allIdle = await ChatService.areAllSlotsIdle(model, signal);
-
-			if (!allIdle || signal.aborted) return;
+			if (signal.aborted) return;
 
 			const messagesWithAssistant: DatabaseMessage[] = [
 				...allMessages,

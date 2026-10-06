@@ -127,18 +127,10 @@ export class ChatProcessingStore {
 		if (activeState && typeof activeState.contextTotal === 'number' && activeState.contextTotal > 0)
 			return activeState.contextTotal;
 
-		if (serverStore.isRouterMode) {
-			const modelContextSize = modelsStore.selectedModelContextSize;
+		const modelContextSize = modelsStore.selectedModelContextSize;
 
-			if (typeof modelContextSize === 'number' && modelContextSize > 0) {
-				return modelContextSize;
-			}
-		} else {
-			const propsContextSize = serverStore.contextSize;
-
-			if (typeof propsContextSize === 'number' && propsContextSize > 0) {
-				return propsContextSize;
-			}
+		if (typeof modelContextSize === 'number' && modelContextSize > 0) {
+			return modelContextSize;
 		}
 
 		return null;

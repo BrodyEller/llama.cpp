@@ -631,6 +631,13 @@ export const SETTINGS_REGISTRY: SettingsSectionEntry[] = [
 				key: SETTINGS_KEYS.CUSTOM_CSS,
 				label: 'Custom CSS',
 				type: SettingsFieldType.TEXTAREA
+			},
+			{
+				defaultValue: '',
+				help: 'JSON map of model name patterns to modalities, for servers that do not advertise capabilities. Example: {"Qwen3.8-Flash-Next-NVFP4": {"vision": true}}. Keys are matched case-insensitively against the model id; values accept vision, audio, video, thinking.',
+				key: SETTINGS_KEYS.MODEL_MODALITY_OVERRIDES,
+				label: 'Model modality overrides',
+				type: SettingsFieldType.TEXTAREA
 			}
 		],
 		slug: SETTINGS_SECTION_SLUGS.DEVELOPER,

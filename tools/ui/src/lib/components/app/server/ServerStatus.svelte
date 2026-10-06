@@ -15,16 +15,13 @@
 	let error = $derived(serverStore.error);
 	let loading = $derived(serverStore.loading);
 	let model = $derived(modelsStore.singleModelName);
-	let serverData = $derived(serverStore.props);
 
 	function getStatusColor() {
 		if (loading) return 'bg-yellow-500';
 
 		if (error) return 'bg-red-500';
 
-		if (serverData) return 'bg-green-500';
-
-		return 'bg-gray-500';
+		return 'bg-green-500';
 	}
 
 	function getStatusText() {
@@ -32,9 +29,7 @@
 
 		if (error) return 'Connection Error';
 
-		if (serverData) return 'Connected';
-
-		return 'Unknown';
+		return 'Connected';
 	}
 </script>
 
@@ -45,18 +40,12 @@
 		<span class="text-sm text-muted-foreground">{getStatusText()}</span>
 	</div>
 
-	{#if serverData && !error}
+	{#if !error}
 		<Badge class="text-xs" variant="outline">
 			<Server class="mr-1 h-3 w-3" />
 
 			{model || 'Unknown Model'}
 		</Badge>
-
-		{#if serverData?.default_generation_settings?.n_ctx}
-			<Badge class="text-xs" variant="secondary">
-				ctx: {serverData.default_generation_settings.n_ctx.toLocaleString()}
-			</Badge>
-		{/if}
 	{/if}
 
 	{#if showActions && error}

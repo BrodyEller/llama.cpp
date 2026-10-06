@@ -99,7 +99,9 @@ class MCPStore implements McpHealthHost {
 	}
 
 	get isProxyAvailable(): boolean {
-		return serverStore.props?.cors_proxy_enabled ?? false;
+		// The CORS proxy is a llama.cpp server feature; not available on
+		// OpenAI-compatible servers.
+		return false;
 	}
 
 	/** Resource state, composed here so consumers have a single MCP scope. */

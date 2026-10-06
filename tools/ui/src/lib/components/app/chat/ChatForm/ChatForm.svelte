@@ -203,15 +203,12 @@
 		return Number.isNaN(n) ? Number(SETTING_CONFIG_DEFAULT.pasteLongTextToFileLen) : n;
 	});
 
-	let isRouter = $derived(serverStore.isRouterMode);
 	let conversationModel = $derived(
 		getConversationModel(conversationsStore.activeMessages as DatabaseMessage[])
 	);
 	let activeModelId = $derived(modelsStore.activeModelId);
 
-	let hasModelSelected = $derived(
-		!isRouter || !!conversationModel || !!modelsStore.selectedModelId
-	);
+	let hasModelSelected = $derived(!!conversationModel || !!modelsStore.selectedModelId);
 	let hasLoadingAttachments = $derived(uploadedFiles.some((f) => f.isLoading));
 	let hasAttachments = $derived(
 		(attachments && attachments.length > 0) || (uploadedFiles && uploadedFiles.length > 0)

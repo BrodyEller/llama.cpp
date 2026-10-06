@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { ModelBadge, ModelsSelectorDropdown } from '$lib/components/app';
-	import { ServerModelStatus } from '$lib/enums';
 	import { modelsStore } from '$lib/stores';
 	import { copyToClipboard } from '$lib/utils';
 
@@ -13,8 +12,6 @@
 
 	let { displayedModel, isLoading, isRouter, onRegenerate }: Props = $props();
 
-	let pendingModel = $state<string | null>(null);
-
 	function handleCopyModel() {
 		void copyToClipboard(displayedModel ?? '');
 	}
@@ -22,21 +19,9 @@
 
 {#if isRouter}
 	<ModelsSelectorDropdown
-		currentModel={pendingModel ?? displayedModel}
+		currentModel={displayedModel}
 		disabled={isLoading}
 		onModelChange={async (modelId: string, modelName: string) => {
-			const status = modelsStore.getModelStatus(modelId);
-
-			if (status !== ServerModelStatus.LOADED) {
-				pendingModel = modelId;
-
-				try {
-					await modelsStore.status.load(modelId);
-				} finally {
-					pendingModel = null;
-				}
-			}
-
 			onRegenerate(modelName);
 
 			return true;

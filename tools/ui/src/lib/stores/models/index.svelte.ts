@@ -1,14 +1,12 @@
 /**
- * modelsStore - Model management for MODEL and ROUTER modes
+ * modelsStore - Model management for OpenAI-compatible servers
  *
- * Owns model lists, selection, favorites and load/unload state. Composes the
- * per-model props cache (modalities, thinking detection) as
- * {@link ModelsStore.props} and the /models/sse status feed as
- * {@link ModelsStore.status}; tracks which conversations use which models.
+ * Owns the model list, selection and favorites. Modalities and thinking
+ * detection are inferred from model names via {@link ModelPropsManager}.
+ * No load/unload or /models/sse status feed (llama.cpp-specific).
  */
 
 import { FAVORITE_MODELS_LOCALSTORAGE_KEY } from '$lib/constants';
-import { ServerModelStatus } from '$lib/enums';
 import { ModelsService } from '$lib/services/models.service';
 // direct imports between stores, not via the barrel, to avoid circular deps
 import { conversationsStore } from '$lib/stores/conversations/index.svelte';
@@ -24,16 +22,15 @@ class ModelsStore implements ModelPropsHost, ModelStatusHost {
 	favoriteModelIds = $state<Set<string>>(this.loadFavoritesFromStorage());
 	loading = $state(false);
 	models = $state<ModelOption[]>([]);
-	routerModels = $state<ApiModelDataEntry[]>([]);
 	selectedModelId = $state<string | null>(null);
 	selectedModelName = $state<string | null>(null);
 
 	updating = $state(false);
 
-	/** Per-model props cache, modalities and thinking detection, composed here. */
+	/** Per-model modality and thinking detection, composed here. */
 	private _props = new ModelPropsManager(this);
 
-	/** Load/unload operations and the /models/sse status feed, composed here. */
+	/** No-op load/unload status manager, kept for UI compatibility. */
 	private _status = new ModelStatusManager(this);
 
 	// Dedup concurrent fetch() callers — all awaiters share the same inflight promise.
@@ -41,15 +38,10 @@ class ModelsStore implements ModelPropsHost, ModelStatusHost {
 	private inflightFetch: Promise<void> | null = null;
 
 	/**
-	 * Model the active conversation view resolves to. Router mode: the user's
-	 * selection first, then the conversation's own model. Otherwise the single
-	 * served model, from the models list or the server props as a fallback.
+	 * Model the active conversation view resolves to. The user's selection
+	 * first, then the conversation's own model.
 	 */
 	get activeModelId(): string | null {
-		if (!serverStore.isRouterMode) {
-			return this.models.length > 0 ? this.models[0].model : this.singleModelName;
-		}
-
 		if (this.selectedModelId) {
 			const selected = this.models.find((m) => m.id === this.selectedModelId);
 
@@ -67,18 +59,12 @@ class ModelsStore implements ModelPropsHost, ModelStatusHost {
 		return null;
 	}
 
-	get loadedModelIds(): string[] {
-		return this.routerModels
-			.filter(
-				(m) =>
-					m.status.value === ServerModelStatus.LOADED ||
-					m.status.value === ServerModelStatus.SLEEPING
-			)
-			.map((m) => m.id);
-	}
-
 	get props() {
 		return this._props;
+	}
+
+	get status() {
+		return this._status;
 	}
 
 	get selectedModel(): ModelOption | null {
@@ -94,24 +80,10 @@ class ModelsStore implements ModelPropsHost, ModelStatusHost {
 	}
 
 	/**
-	 * Get model name in MODEL mode (single model).
-	 * Extracts from model_path or model_alias from server props.
-	 * In ROUTER mode, returns null (model is per-conversation).
+	 * Single model name is not meaningful on a multi-model OpenAI server.
 	 */
 	get singleModelName(): string | null {
-		if (serverStore.isRouterMode) return null;
-
-		const props = serverStore.props;
-
-		if (props?.model_alias) return props.model_alias;
-
-		if (!props?.model_path) return null;
-
-		return props.model_path.split(/(\\|\/)/).pop() || null;
-	}
-
-	get status() {
-		return this._status;
+		return null;
 	}
 
 	clearSelection(): void {
@@ -121,12 +93,8 @@ class ModelsStore implements ModelPropsHost, ModelStatusHost {
 
 	/**
 	 * Auto-selects the first available model if none is selected.
-	 * Prioritizes:
-	 * 1. Model from active conversation's last assistant response (if loaded)
-	 * 2. Model from active conversation's last assistant response (if not loaded)
-	 * 3. First loaded model (not from active conversation)
-	 * 4. A favorite model
-	 * 5. First available model
+	 * Prioritizes the model from the active conversation's last assistant
+	 * response, then a favorite, then the first available model.
 	 */
 	async ensureFirstModelSelected(): Promise<void> {
 		if (this.selectedModelName) return;
@@ -143,26 +111,13 @@ class ModelsStore implements ModelPropsHost, ModelStatusHost {
 
 			if (lastModelOption) {
 				await this.selectModelById(lastModelOption.id);
-
-				if (this.isModelLoaded(lastModel)) {
-					await this.props.fetchModelProps(lastModel);
-				}
+				await this.props.fetchModelProps(lastModel);
 
 				return;
 			}
 		}
 
-		// Try a loaded model first
-		const loadedModel = availableModels.find((m) => this.isModelLoaded(m.model));
-
-		if (loadedModel) {
-			await this.selectModelById(loadedModel.id);
-			await this.props.fetchModelProps(loadedModel.model);
-
-			return;
-		}
-
-		// Try loading a favorite model
+		// Try a favorite model
 		const favorite = this.favoriteModelIds.values().next()?.value;
 
 		if (favorite) {
@@ -176,8 +131,7 @@ class ModelsStore implements ModelPropsHost, ModelStatusHost {
 	}
 
 	/**
-	 * Fetch list of models from server and detect server role.
-	 * Also fetches modalities for MODEL mode (single model).
+	 * Fetch list of models from the OpenAI-compatible /v1/models endpoint.
 	 */
 	async fetch(force = false): Promise<void> {
 		if (this.inflightFetch) return this.inflightFetch;
@@ -189,34 +143,6 @@ class ModelsStore implements ModelPropsHost, ModelStatusHost {
 			await this.inflightFetch;
 		} finally {
 			this.inflightFetch = null;
-		}
-	}
-
-	/**
-	 * Fetch models with full metadata (ROUTER mode only).
-	 * No-op in MODEL mode - fetch() already calls list() internally.
-	 * Kept for API compatibility (e.g. handleOpenChange dropdown open handler).
-	 */
-	async fetchRouterModels(): Promise<void> {
-		if (!serverStore.isRouterMode) return;
-
-		try {
-			const response = await ModelsService.list();
-
-			this.routerModels = response.data;
-			// keep the selector options in sync: a downloaded / deleted model shows
-			// up here too, not only in the router model rows
-			this.models = this.buildModelOptions(response);
-			await this.props.fetchModalitiesForLoadedModels();
-
-			const visible = this.getVisibleModels();
-
-			if (visible.length === 1 && this.isModelLoaded(visible[0].model)) {
-				this.selectModelById(visible[0].id);
-			}
-		} catch (error) {
-			console.warn('Failed to fetch router models:', error);
-			this.routerModels = [];
 		}
 	}
 
@@ -251,12 +177,6 @@ class ModelsStore implements ModelPropsHost, ModelStatusHost {
 		return null;
 	}
 
-	getModelStatus(modelId: string): ServerModelStatus | null {
-		const model = this.routerModels.find((m) => m.id === modelId);
-
-		return model?.status.value ?? null;
-	}
-
 	hasModel(modelName: string): boolean {
 		return this.models.some((model) => model.model === modelName);
 	}
@@ -265,13 +185,12 @@ class ModelsStore implements ModelPropsHost, ModelStatusHost {
 		return this.favoriteModelIds.has(modelId);
 	}
 
+	/**
+	 * On an OpenAI-compatible server all listed models are available, so a
+	 * model is always considered loaded.
+	 */
 	isModelLoaded(modelId: string): boolean {
-		const model = this.routerModels.find((m) => m.id === modelId);
-
-		return (
-			model?.status.value === ServerModelStatus.LOADED ||
-			model?.status.value === ServerModelStatus.SLEEPING
-		);
+		return this.models.some((m) => m.model === modelId || m.id === modelId);
 	}
 
 	async selectModelById(modelId: string): Promise<void> {
@@ -307,7 +226,7 @@ class ModelsStore implements ModelPropsHost, ModelStatusHost {
 	}
 
 	/**
-	 * Auto-selects the model from the last assistant response if available and loaded.
+	 * Auto-selects the model from the last assistant response if available.
 	 * Returns true if a model was selected, false otherwise.
 	 */
 	async selectModelFromLastAssistantResponse(): Promise<boolean> {
@@ -317,7 +236,7 @@ class ModelsStore implements ModelPropsHost, ModelStatusHost {
 
 		const matchingModel = this.models.find((option) => option.model === lastModel);
 
-		if (!matchingModel || !this.isModelLoaded(lastModel)) return false;
+		if (!matchingModel) return false;
 
 		try {
 			await this.selectModelById(matchingModel.id);
@@ -357,62 +276,34 @@ class ModelsStore implements ModelPropsHost, ModelStatusHost {
 	}
 
 	/**
-	 * Build ModelOption[] from an API response.
-	 * Both MODEL and ROUTER modes share the same mapping logic;
-	 * they differ only in which endpoint is called.
+	 * Build ModelOption[] from an OpenAI-compatible /v1/models response.
 	 */
 	private buildModelOptions(response: ApiModelsListResponse): ModelOption[] {
-		const entries: {
-			details?: ApiModelsListResponse['models'][number];
-			item: ApiModelDataEntry;
-		}[] = response.data.map((item: ApiModelDataEntry, index: number) => ({
-			details: response.models?.[index],
-			item
-		}));
+		return response.data.map((item: ApiModelDataEntry) => {
+			const displayNameSource = item.name && item.name.trim().length > 0 ? item.name : item.id;
+			const modelId = item.id;
 
-		return (
-			entries
-				// sidecar entries mark downloaded sidecar files, not loadable models
-				.filter(({ item }) => !ModelsService.isSidecarEntry(item.id))
-				// in-flight downloads are not usable models yet; the selector tracks
-				// them in its "Download in progress" section instead
-				.filter(({ item }) => item.status?.value !== ServerModelStatus.DOWNLOADING)
-				.map(({ details, item }) => {
-					const rawCapabilities = Array.isArray(details?.capabilities) ? details?.capabilities : [];
-					const displayNameSource =
-						details?.name && details.name.trim().length > 0 ? details.name : item.id;
-					const modelId = details?.model || item.id;
-
-					return {
-						aliases: item.aliases ?? [],
-						capabilities: rawCapabilities.filter((value: unknown): value is string =>
-							Boolean(value)
-						),
-						description: details?.description,
-						details: details?.details,
-						id: item.id,
-						meta: item.meta ?? null,
-						modalities: this.props.buildArchitectureModalities(item.architecture),
-						model: modelId,
-						name: this.toDisplayName(displayNameSource),
-						parsedId: ModelsService.parseModelId(modelId),
-						tags: item.tags ?? []
-					};
-				})
-		);
+			return {
+				aliases: item.aliases ?? [],
+				capabilities: item.capabilities ?? [],
+				description: item.description,
+				details: item.details,
+				id: item.id,
+				meta: item.meta ?? null,
+				modalities: this.props.getModelModalities(modelId),
+				model: modelId,
+				name: this.toDisplayName(displayNameSource),
+				tags: item.tags ?? []
+			};
+		});
 	}
 
-	/** Fetch models in MODEL mode (single model, standard OpenAI-compatible). */
-	private async fetchModelModeInternal(): Promise<ModelOption[]> {
-		const response = await ModelsService.list();
-
-		return this.buildModelOptions(response);
-	}
 	/**
-	 * Filter to models visible in the UI (ui !== false).
+	 * Filter to models visible in the UI. On an OpenAI-compatible server all
+	 * models are visible.
 	 */
 	private getVisibleModels(): ModelOption[] {
-		return this.models.filter((option) => this.props.getModelProps(option.model)?.ui !== false);
+		return this.models;
 	}
 
 	private loadFavoritesFromStorage(): Set<string> {
@@ -432,27 +323,21 @@ class ModelsStore implements ModelPropsHost, ModelStatusHost {
 		this.error = null;
 
 		try {
-			if (!serverStore.props) {
-				await serverStore.fetch();
+			await serverStore.fetch();
+
+			const response = await ModelsService.list();
+
+			this.models = this.buildModelOptions(response);
+
+			// Infer modalities for each model from its name.
+			for (const model of this.models) {
+				await this.props.fetchModelProps(model.model);
 			}
 
-			const router = serverStore.isRouterMode;
+			const visible = this.getVisibleModels();
 
-			if (router) {
-				const response = await ModelsService.list();
-
-				this.routerModels = response.data;
-				this.models = this.buildModelOptions(response);
-
-				await this.props.fetchModalitiesForLoadedModels();
-
-				const visible = this.getVisibleModels();
-
-				if (visible.length === 1 && this.isModelLoaded(visible[0].model)) {
-					this.selectModelById(visible[0].id);
-				}
-			} else {
-				this.models = await this.fetchModelModeInternal();
+			if (visible.length === 1) {
+				this.selectModelById(visible[0].id);
 			}
 		} catch (error) {
 			this.models = [];

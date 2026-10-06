@@ -1,11 +1,11 @@
 /**
  * ReadMediaService - Reads local media files for the read_media tool
  *
- * Encodes image and audio files as base64 data URLs with the metadata the
- * model needs. No reactive state; consumed by toolsStore.
+ * On an OpenAI-compatible server there is no server-side read_file tool, so
+ * this service cannot read arbitrary server files. It returns an error
+ * gracefully. No reactive state; consumed by toolsStore.
  */
 
-import { ToolsService } from './tools.service';
 import {
 	FILE_EXTENSION_SEPARATOR,
 	FILE_PATH_SEPARATOR_REGEX,
@@ -14,10 +14,8 @@ import {
 	PREFIX_MIME,
 	PREFIX_SIZE,
 	READ_MEDIA_AUDIO_MIME,
-	READ_MEDIA_IMAGE_MIME,
-	RESP_TYPE_BASE64
+	READ_MEDIA_IMAGE_MIME
 } from '$lib/constants';
-import { BuiltInTool, ToolResponseField } from '$lib/enums';
 import type { ToolExecutionResult } from '$lib/types';
 
 /** Modalities of the model the tool call runs for. */
@@ -37,14 +35,10 @@ function fileExtension(path: string): string {
 /**
  * **ReadMediaService** - browser executor for the `read_media` tool
  *
- * The tool is synthetic: no such tool exists on the server. It reads the file
- * through the server `read_file` tool with the `base64` response type, then
- * turns the bytes into a data URI line. The agentic store lifts that line into
- * an image or audio attachment on the tool result message, which is what makes
- * the model perceive the file instead of reading a wall of base64.
- *
- * Living in the browser is what lets it exist only for models that can
- * actually use the result - the server has no idea which model is selected.
+ * The tool is synthetic: no such tool exists on the server. On an
+ * OpenAI-compatible server there is no server-side read_file tool, so this
+ * returns an error. The agentic store lifts the result into an image or audio
+ * attachment on the tool result message.
  *
  * @see buildReadMediaToolDefinition in constants/read-media.ts - tool schema sent to the LLM
  * @see agenticStore in stores/agentic/index.svelte.ts - tool dispatch and attachment extraction
@@ -88,32 +82,10 @@ export class ReadMediaService {
 			};
 		}
 
-		const raw = await ToolsService.executeToolRaw(
-			BuiltInTool.SERVER_READ_FILE,
-			{ path },
-			signal,
-			cwd,
-			RESP_TYPE_BASE64
-		);
-
-		if (ToolResponseField.ERROR in raw) {
-			return { content: String(raw[ToolResponseField.ERROR]), isError: true };
-		}
-
-		const base64 = typeof raw.base64 === 'string' ? raw.base64 : '';
-
-		if (!base64) {
-			return { content: `Error: no data returned for ${path}.`, isError: true };
-		}
-
-		const sizeBytes = typeof raw.size_bytes === 'number' ? raw.size_bytes : 0;
-		const content = [
-			`${PREFIX_FILE}${path}`,
-			`${PREFIX_SIZE}${sizeBytes} bytes`,
-			`${PREFIX_MIME}${resolvedMime}`,
-			`data:${resolvedMime};base64,${base64}`
-		].join(NEWLINE);
-
-		return { content, isError: false };
+		// No server-side read_file tool on an OpenAI-compatible server.
+		return {
+			content: `Error: cannot read "${path}" - server-side file access is not available on this server.`,
+			isError: true
+		};
 	}
 }

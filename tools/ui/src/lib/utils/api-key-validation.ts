@@ -1,12 +1,12 @@
 import { error } from '@sveltejs/kit';
 import { browser } from '$app/environment';
 import { base } from '$app/paths';
-import { HEADERS } from '$lib/constants';
+import { API_MODELS, HEADERS } from '$lib/constants';
 import { MimeTypeApplication } from '$lib/enums';
 import { settingsStore } from '$lib/stores/settings/index.svelte';
 
 /**
- * Validates API key by making a request to the server props endpoint
+ * Validates API key by probing the OpenAI-compatible /v1/models endpoint
  * Throws SvelteKit errors for authentication failures or server issues
  */
 export async function validateApiKey(fetch: typeof globalThis.fetch): Promise<void> {
@@ -21,14 +21,14 @@ export async function validateApiKey(fetch: typeof globalThis.fetch): Promise<vo
 			[HEADERS.CONTENT_TYPE]: MimeTypeApplication.JSON
 		};
 
-		// Probe /props even without a stored key: on a server started with
-		// --api-key the unauthenticated request returns 401 and surfaces the
+		// Probe /v1/models even without a stored key: on a server that requires
+		// an API key the unauthenticated request returns 401 and surfaces the
 		// API key splash, which is the onboarding path for entering the key.
 		if (apiKey) {
 			headers[HEADERS.AUTHORIZATION] = `${HEADERS.BEARER}${apiKey}`;
 		}
 
-		const response = await fetch(`${base}/props`, { headers });
+		const response = await fetch(`${base}${API_MODELS.LIST}`, { headers });
 
 		if (!response.ok) {
 			if (response.status === 401 || response.status === 403) {

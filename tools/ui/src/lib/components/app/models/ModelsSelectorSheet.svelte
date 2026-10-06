@@ -1,5 +1,4 @@
 <script lang="ts">
-	import ModelLoadHighlight from './ModelLoadHighlight.svelte';
 	import { ChevronDown, Loader2, Package } from '@lucide/svelte';
 	import {
 		DialogModelInformation,
@@ -8,10 +7,8 @@
 		SearchInput
 	} from '$lib/components/app';
 	import * as Sheet from '$lib/components/ui/sheet';
-	import { ServerModelStatus } from '$lib/enums';
 	import { useModelsSelector } from '$lib/hooks/use-models-selector.svelte';
 	import { modelsStore } from '$lib/stores';
-	import { modelLoadFraction } from '$lib/utils';
 
 	interface Props {
 		class?: string;
@@ -65,17 +62,6 @@
 		<p class="text-xs text-muted-foreground">No models available.</p>
 	{:else}
 		{@const selectedOption = ms.getDisplayOption()}
-		{@const triggerModel = selectedOption?.model}
-		{@const triggerStatus = triggerModel
-			? modelsStore.routerModels.find((m) => m.id === triggerModel)?.status?.value
-			: undefined}
-		{@const triggerLoading =
-			!!triggerModel &&
-			(triggerStatus === ServerModelStatus.LOADING ||
-				modelsStore.status.isOperationInProgress(triggerModel))}
-		{@const triggerLoadPercent = triggerLoading
-			? Math.round(modelLoadFraction(modelsStore.status.getLoadProgress(triggerModel)) * 100)
-			: 0}
 
 		{#if ms.isRouter}
 			<button
@@ -113,10 +99,6 @@
 					<Loader2 class="h-3 w-3.5 shrink-0 animate-spin" />
 				{:else}
 					<ChevronDown class="h-3 w-3.5 shrink-0" />
-				{/if}
-
-				{#if triggerLoading}
-					<ModelLoadHighlight percent={triggerLoadPercent} />
 				{/if}
 			</button>
 

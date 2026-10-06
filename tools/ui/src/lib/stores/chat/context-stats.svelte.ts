@@ -207,8 +207,7 @@ class ContextStatsStore {
 	});
 
 	isActiveModelLoaded = $derived(
-		this.activeModelId !== null &&
-			(!serverStore.isRouterMode || modelsStore.isModelLoaded(this.activeModelId))
+		this.activeModelId !== null && modelsStore.isModelLoaded(this.activeModelId)
 	);
 
 	isActiveModelLoading = $derived(

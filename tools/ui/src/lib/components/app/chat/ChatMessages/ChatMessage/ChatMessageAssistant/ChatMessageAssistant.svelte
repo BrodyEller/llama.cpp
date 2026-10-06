@@ -11,8 +11,7 @@
 	import { getChatMessageEditContext } from '$lib/contexts';
 	import { MessageRole } from '$lib/enums';
 	import { useProcessingState } from '$lib/hooks/use-processing-state.svelte';
-	import { chatStore, modelsStore, serverStore, settingsStore } from '$lib/stores';
-	import { modelLoadProgressText } from '$lib/utils';
+	import { chatStore, modelsStore, settingsStore } from '$lib/stores';
 	import { hasAgenticContent } from '$lib/utils';
 
 	interface Props {
@@ -42,7 +41,6 @@
 	const processingState = useProcessingState();
 
 	let currentConfig = $derived(settingsStore.config);
-	let isRouter = $derived(serverStore.isRouterMode);
 
 	let showRawOutput = $state(false);
 
@@ -52,16 +50,6 @@
 	let isStreaming = $derived(chatStore.isStreaming());
 	let hasNoContent = $derived(!message?.content?.trim());
 	let isActivelyProcessing = $derived(isCurrentlyLoading || isStreaming);
-
-	// during a router auto-load the message has no model yet: target the model frozen in the
-	// persisted stream state (survives a reload), then fall back to the dropdown selection
-	let loadTargetModel = $derived(
-		message.model ?? chatStore.getResumeModel(message.convId) ?? modelsStore.selectedModelName
-	);
-	let modelLoadProgress = $derived(
-		isRouter && loadTargetModel ? modelsStore.status.getLoadProgress(loadTargetModel) : null
-	);
-	let modelLoadingText = $derived(modelLoadProgressText(modelLoadProgress));
 
 	let showProcessingInfoTop = $derived(
 		message?.role === MessageRole.ASSISTANT &&
@@ -138,7 +126,7 @@
 	role="group"
 >
 	{#if showProcessingInfoTop}
-		<ChatMessageAssistantProcessingInfo {modelLoadingText} position="top" {processingState} />
+		<ChatMessageAssistantProcessingInfo modelLoadingText={null} position="top" {processingState} />
 	{/if}
 
 	{#if editCtx.isEditing}
@@ -157,7 +145,7 @@
 	{/if}
 
 	{#if showProcessingInfoBottom}
-		<ChatMessageAssistantProcessingInfo {modelLoadingText} position="bottom" {processingState} />
+		<ChatMessageAssistantProcessingInfo modelLoadingText={null} position="bottom" {processingState} />
 	{/if}
 
 	{#if displayedModel}
@@ -166,7 +154,7 @@
 				<ChatMessageAssistantModel
 					{displayedModel}
 					isLoading={chatStore.isLoading}
-					{isRouter}
+					isRouter={true}
 					{onRegenerate}
 				/>
 

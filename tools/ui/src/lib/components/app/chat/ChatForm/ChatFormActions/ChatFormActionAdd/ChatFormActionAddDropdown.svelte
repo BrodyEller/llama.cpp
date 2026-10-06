@@ -97,12 +97,10 @@
 				}
 			}}
 		>
-			<!-- in router mode the models selector owns the reasoning submenu -->
-			{#if !serverStore.isRouterMode}
-				<ChatFormActionAddReasoningSubmenu />
+			<!-- the models selector owns the reasoning submenu -->
+			<ChatFormActionAddReasoningSubmenu />
 
-				<DropdownMenu.Separator />
-			{/if}
+			<DropdownMenu.Separator />
 
 			<DropdownMenu.Item
 				class="flex cursor-pointer items-center gap-2"

@@ -14,25 +14,22 @@ import {
 	buildReadMediaToolDefinition,
 	DISABLED_TOOL_CATEGORIES_LOCALSTORAGE_KEY,
 	DISABLED_TOOL_KEYS_LOCALSTORAGE_KEY,
-	HOME_TILDE,
 	TOOL_GROUP_LABELS,
 	TOOL_SERVER_LABELS
 } from '$lib/constants';
 import {
 	BuiltInTool,
-	GlobSearchType,
 	HealthCheckStatus,
 	JsonSchemaType,
 	ToolCallType,
 	ToolSource
 } from '$lib/enums';
-import { ToolsService } from '$lib/services/tools.service';
 // direct imports between stores, not via the barrel, to avoid circular deps
 import { mcpStore } from '$lib/stores/mcp/index.svelte';
 import { modelsStore } from '$lib/stores/models/index.svelte';
 import { settingsStore } from '$lib/stores/settings/index.svelte';
 import type { OpenAIToolDefinition, ToolEntry, ToolGroup } from '$lib/types';
-import { ApiError, buildSandboxToolDefinition } from '$lib/utils';
+import { buildSandboxToolDefinition } from '$lib/utils';
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 
 /** Stable selection identity for a tool, shared by the disabled set and the permission store */
@@ -44,12 +41,6 @@ class ToolsStore {
 	private _disabledTools = $state(new SvelteSet<string>());
 	private _error = $state<string | null>(null);
 	private _loading = $state(false);
-	private _serverHome = $state<string | null | undefined>(undefined);
-	private _serverTools = $state<OpenAIToolDefinition[]>([]);
-	private _toolsEndpointUnreachable = $state(false);
-	// server tools that resolve their paths against the working directory,
-	// as declared by the server in its `/tools` listing
-	private cwdAwareTools = $state(new SvelteSet<string>());
 
 	get allToolDefinitions(): OpenAIToolDefinition[] {
 		return this.allTools.map((t) => t.definition);
@@ -65,16 +56,6 @@ class ToolsStore {
 			seen.add(entry.key);
 			entries.push(entry);
 		};
-
-		for (const def of this._serverTools) {
-			const name = def.function.name;
-
-			push({
-				definition: def,
-				key: this.toolKey(ToolSource.SERVER, name),
-				source: ToolSource.SERVER
-			});
-		}
 
 		for (const def of this.browserTools) {
 			const name = def.function.name;
@@ -122,10 +103,8 @@ class ToolsStore {
 
 		if (readMedia) tools.push(readMedia);
 
-		// provide browser's get_info tool if server doesn't provide one
-		if (!this.hasServerTool(BuiltInTool.SERVER_GET_INFO)) {
-			tools.push(buildBrowserInfoToolDefinition());
-		}
+		// always provide the browser's get_info tool
+		tools.push(buildBrowserInfoToolDefinition());
 
 		return tools;
 	}
@@ -167,7 +146,8 @@ class ToolsStore {
 	}
 
 	get isToolsEndpointUnreachable(): boolean {
-		return this._toolsEndpointUnreachable;
+		// No server tools endpoint on an OpenAI-compatible server.
+		return false;
 	}
 
 	get loading(): boolean {
@@ -179,11 +159,11 @@ class ToolsStore {
 	}
 
 	get serverHome(): string | null {
-		return this._serverHome ?? null;
+		return null;
 	}
 
 	get serverTools(): OpenAIToolDefinition[] {
-		return this._serverTools;
+		return [];
 	}
 
 	/** Tools grouped by category for tree display, derived from the canonical entries */
@@ -231,33 +211,11 @@ class ToolsStore {
 		this.persistDisabledTools();
 	}
 
+	/**
+	 * Fetch server tools. No-op on an OpenAI-compatible server.
+	 */
 	async fetchServerTools(): Promise<void> {
-		if (this._loading) return;
-
-		this._loading = true;
-		this._error = null;
-		this._toolsEndpointUnreachable = false;
-
-		try {
-			const toolInfos = await ToolsService.list();
-
-			this._serverTools = toolInfos.map((info) => info.definition);
-			this.cwdAwareTools = new SvelteSet(
-				toolInfos.filter((info) => info.uses_cwd).map((info) => info.tool)
-			);
-		} catch (err) {
-			this._error = err instanceof Error ? err.message : String(err);
-
-			// 403 from /tools means the server was started without --tools
-			if (err instanceof ApiError && err.status === 403) {
-				this._toolsEndpointUnreachable = true;
-				console.info('[ToolsStore] Server tools are disabled on the server');
-			} else {
-				console.error('[ToolsStore] Failed to fetch server tools:', err);
-			}
-		} finally {
-			this._loading = false;
-		}
+		// No server tools on an OpenAI-compatible server.
 	}
 
 	/**
@@ -265,7 +223,7 @@ class ToolsStore {
 	 * explicit policy (the active conversation's, resolved with global
 	 * defaults when absent); without arguments the store defaults apply.
 	 * MCP tool schemas are normalized here so the wire payload is consistent
-	 * across all four sources (server, browser/sandbox, MCP, custom JSON).
+	 * across all four sources (browser/sandbox, MCP, custom JSON).
 	 * The API identifies tools by name, so a name is sent at most once.
 	 */
 	getEnabledToolsForLLM(
@@ -291,7 +249,6 @@ class ToolsStore {
 			result.push(def);
 		};
 
-		for (const def of this._serverTools) take(def);
 		for (const def of this.browserTools) take(def);
 		// mcpEntries() over mcpStore directly so wire shape stays normalized and aligned with the tools UI.
 		for (const entry of this.mcpEntries()) take(entry.definition);
@@ -333,23 +290,14 @@ class ToolsStore {
 	}
 
 	/**
-	 * Check if a working directory is worth setting: at least one server tool
-	 * that reads it is both served and left enabled by the given policy
-	 * (defaults to the global defaults).
+	 * Check if a working directory is worth setting. No server tools exist on
+	 * an OpenAI-compatible server, so this is always false.
 	 */
 	hasEnabledCwdTools(
 		disabledTools: ReadonlySet<string> = this._disabledTools,
 		disabledCategories: ReadonlySet<ToolSource> = this._disabledToolCategories
 	): boolean {
-		if (disabledCategories.has(ToolSource.SERVER)) return false;
-
-		return this._serverTools.some((def) => {
-			const name = def.function.name;
-
-			return (
-				this.cwdAwareTools.has(name) && !disabledTools.has(this.toolKey(ToolSource.SERVER, name))
-			);
-		});
+		return false;
 	}
 
 	/**
@@ -394,7 +342,7 @@ class ToolsStore {
 			console.error('[ToolsStore] Failed to load disabled tool categories from localStorage:', err);
 		}
 
-		this.fetchServerTools();
+		// No server tools to fetch on an OpenAI-compatible server.
 	}
 
 	isCategoryEnabled(source: ToolSource): boolean {
@@ -422,29 +370,11 @@ class ToolsStore {
 	}
 
 	/**
-	 * Absolute home directory on the server, resolved once per session via
-	 * file_glob_search's `base` field (the server expands `~`). Anchors the
-	 * directory picker's search scope and the `~` abbreviation of cwd
-	 * displays. Returns null when tools are unavailable.
+	 * Absolute home directory on the server. No server tools exist on an
+	 * OpenAI-compatible server, so this always returns null.
 	 */
 	async resolveServerHome(): Promise<string | null> {
-		if (this._serverHome !== undefined) return this._serverHome;
-
-		try {
-			const res = await ToolsService.executeToolRaw(BuiltInTool.SERVER_FILE_GLOB_SEARCH, {
-				limit: 1,
-				max_depth: 1,
-				path: HOME_TILDE,
-				type: GlobSearchType.DIR
-			});
-
-			this._serverHome = typeof res.base === 'string' ? res.base : null;
-		} catch {
-			// searches still work via a literal `~`, only `~` abbreviation degrades
-			this._serverHome = null;
-		}
-
-		return this._serverHome;
+		return null;
 	}
 
 	setCategoryEnabled(source: ToolSource, enabled: boolean): void {
@@ -520,10 +450,6 @@ class ToolsStore {
 			default:
 				return TOOL_GROUP_LABELS[ToolSource.SERVER];
 		}
-	}
-
-	private hasServerTool(name: BuiltInTool): boolean {
-		return this._serverTools.some((def) => def.function.name === name);
 	}
 
 	private inferTypeFromDefault(value: unknown): string | undefined {
@@ -677,14 +603,10 @@ class ToolsStore {
 	}
 
 	/**
-	 * `read_media` runs in the browser on top of the server's `read_file`, so it
-	 * exists only when that tool is served and the active model can perceive the
-	 * bytes. The server cannot make this call - it does not know which model the
-	 * conversation uses.
+	 * `read_media` runs in the browser on top of uploaded media, so it exists
+	 * only when the active model can perceive the bytes.
 	 */
 	private readMediaTool(): OpenAIToolDefinition | null {
-		if (!this.hasServerTool(BuiltInTool.SERVER_READ_FILE)) return null;
-
 		const model = modelsStore.selectedModelName ?? modelsStore.models[0]?.model ?? '';
 
 		if (!model) return null;

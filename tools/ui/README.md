@@ -1,11 +1,6 @@
 # llama-ui
 
-A modern, feature-rich web interface for llama-server built with SvelteKit. This UI provides an intuitive chat interface with advanced file handling, conversation management, and comprehensive model interaction capabilities.
-
-Llama UI supports two server operation modes:
-
-- **MODEL mode** - Single model operation (standard llama-server)
-- **ROUTER mode** - Multi-model operation with dynamic model loading/unloading
+A modern, feature-rich web interface for any **OpenAI-compatible server** (vLLM, Ollama, LM Studio, LiteLLM, OpenAI, etc.) built with SvelteKit. This UI provides an intuitive chat interface with advanced file handling, conversation management, MCP tool support, and comprehensive model interaction capabilities.
 
 ---
 
@@ -42,7 +37,7 @@ Llama UI supports two server operation modes:
 ### Conversation Management
 
 - **Branching** - Branch messages conversations at any point by editing messages or regenerating responses, navigate between branches
-- **Regeneration** - Regenerate responses with optional model switching (ROUTER mode)
+- **Regeneration** - Regenerate responses with optional model switching
 - **Import/Export** - JSON format for backup and sharing
 - **Search** - Find conversations by title or content
 
@@ -52,12 +47,11 @@ Llama UI supports two server operation modes:
 - **Math formulas** - KaTeX rendering for LaTeX expressions
 - **Markdown** - Full GFM support with tables, lists, and more
 
-### Multi-Model Support (ROUTER mode)
+### Multi-Model Support
 
-- **Model selector** with Loaded/Available groups
-- **Automatic loading** - Models load on selection
-- **Modality validation** - Prevents sending images to non-vision models
-- **LRU unloading** - Server auto-manages model cache
+- **Model selector** - Select from any model served by the OpenAI-compatible server
+- **Modality validation** - Prevents sending images to non-vision models (inferred from model name)
+- **MCP tools** - Connect Model Context Protocol servers and expose their tools to the LLM
 
 ### Keyboard Shortcuts
 
@@ -71,7 +65,6 @@ Llama UI supports two server operation modes:
 
 ### Developer Experience
 
-- **Request tracking** - Monitor token generation with `/slots` endpoint
 - **Storybook** - Component library with visual testing
 - **Hot reload** - Instant updates during development
 
@@ -83,7 +76,7 @@ Llama UI supports two server operation modes:
 
 - **Node.js** 18+ (20+ recommended)
 - **npm** 9+
-- **llama-server** running locally (for API access)
+- An **OpenAI-compatible server** running (vLLM, Ollama, LM Studio, etc.)
 
 ### 1. Install Dependencies
 
@@ -92,19 +85,29 @@ cd tools/ui
 npm ci
 ```
 
-### 2. Start llama-server
+### 2. Start your OpenAI-compatible server
 
-In a separate terminal, start the backend server:
+In a separate terminal, start the backend server. For example with vLLM:
 
 ```bash
-# Single model (MODEL mode)
-./llama-server -m model.gguf
-
-# Multi-model (ROUTER mode)
-./llama-server --models-dir /path/to/models
+vllm serve <model>
 ```
 
-### 3. Start Development Servers
+Or with Ollama:
+
+```bash
+ollama serve
+```
+
+### 3. Configure the server origin
+
+Set `VITE_PUBLIC_SERVER_ORIGIN` in `.env` to point at your server:
+
+```bash
+VITE_PUBLIC_SERVER_ORIGIN='http://localhost:8000'
+```
+
+### 4. Start Development Servers
 
 ```bash
 npm run dev
@@ -115,16 +118,12 @@ This starts:
 - **Vite dev server** at `http://localhost:5173` - The main UI frontend app
 - **Storybook** at `http://localhost:6006` - Component documentation
 
-The Vite dev server proxies API requests to `SERVER_ORIGIN` (with fallback to default llama-server `8080` port):
+The Vite dev server proxies API requests to `SERVER_ORIGIN`:
 
 ```typescript
 // vite.config.ts proxy configuration
 proxy: {
 	'/v1': SERVER_ORIGIN,
-	'/props': SERVER_ORIGIN,
-	'/models': SERVER_ORIGIN,
-	'/tools': SERVER_ORIGIN,
-	'/slots': SERVER_ORIGIN,
 	'/cors-proxy': SERVER_ORIGIN
 },
 ```

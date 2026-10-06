@@ -13,7 +13,6 @@ export interface OrgGroup {
 }
 
 export interface GroupedModelOptions {
-	loaded: ModelItem[];
 	favorites: ModelItem[];
 	available: OrgGroup[];
 }
@@ -52,41 +51,28 @@ export function filterModelOptions(options: ModelOption[], searchTerm: string): 
 
 export function groupModelOptions(
 	filteredOptions: ModelOption[],
-	favoriteIds: Set<string>,
-	isModelLoaded: (model: string) => boolean
+	favoriteIds: Set<string>
 ): GroupedModelOptions {
-	// Loaded models
-	const loaded: ModelItem[] = [];
-
-	for (let i = 0; i < filteredOptions.length; i++) {
-		if (isModelLoaded(filteredOptions[i].model)) {
-			loaded.push({ flatIndex: i, option: filteredOptions[i] });
-		}
-	}
-
-	// Favorites (excluding loaded)
-	const loadedModelIds = new Set(loaded.map((item) => item.option.model));
+	// Favorites
 	const favorites: ModelItem[] = [];
 
 	for (let i = 0; i < filteredOptions.length; i++) {
-		if (
-			favoriteIds.has(filteredOptions[i].model) &&
-			!loadedModelIds.has(filteredOptions[i].model)
-		) {
+		if (favoriteIds.has(filteredOptions[i].model)) {
 			favorites.push({ flatIndex: i, option: filteredOptions[i] });
 		}
 	}
 
-	// Available models grouped by org (excluding loaded and favorites)
+	// Available models grouped by org (excluding favorites)
 	const available: OrgGroup[] = [];
 	const orgGroups = new SvelteMap<string, ModelItem[]>();
 
 	for (let i = 0; i < filteredOptions.length; i++) {
 		const option = filteredOptions[i];
 
-		if (loadedModelIds.has(option.model) || favoriteIds.has(option.model)) continue;
+		if (favoriteIds.has(option.model)) continue;
 
-		const key = option.parsedId?.orgName ?? '';
+		// Derive the org from the model id (e.g. "org/model" -> "org").
+		const key = option.model.includes('/') ? option.model.split('/')[0] : '';
 
 		if (!orgGroups.has(key)) orgGroups.set(key, []);
 
@@ -97,5 +83,5 @@ export function groupModelOptions(
 		available.push({ items, orgName: orgName || null });
 	}
 
-	return { available, favorites, loaded };
+	return { available, favorites };
 }

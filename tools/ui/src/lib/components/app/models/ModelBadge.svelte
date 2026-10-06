@@ -3,7 +3,7 @@
 	import { Package } from '@lucide/svelte';
 	import { ActionIconCopyToClipboard, BadgeInfo } from '$lib/components/app';
 	import * as Tooltip from '$lib/components/ui/tooltip';
-	import { modelsStore, serverStore } from '$lib/stores';
+	import { modelsStore } from '$lib/stores';
 
 	interface Props {
 		class?: string;
@@ -22,8 +22,7 @@
 	}: Props = $props();
 
 	let model = $derived(modelProp || modelsStore.singleModelName);
-	let isModelMode = $derived(serverStore.isModelMode);
-	let shouldShow = $derived(model && (modelProp !== undefined || isModelMode));
+	let shouldShow = $derived(!!model);
 </script>
 
 {#snippet badgeContent(triggerProps?: Record<string, unknown>)}

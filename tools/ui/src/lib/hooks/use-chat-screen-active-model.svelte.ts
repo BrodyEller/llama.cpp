@@ -8,11 +8,10 @@
  * demand if they aren't cached yet.
  */
 
-import { conversationsStore, modelsStore, serverStore } from '$lib/stores';
+import { conversationsStore, modelsStore } from '$lib/stores';
 import { getConversationModel } from '$lib/utils';
 
 export function useChatScreenActiveModel() {
-	const isRouter = $derived(serverStore.isRouterMode);
 	const conversationModel = $derived(
 		getConversationModel(conversationsStore.activeMessages as DatabaseMessage[])
 	);
@@ -77,7 +76,7 @@ export function useChatScreenActiveModel() {
 			return hasVisionModality;
 		},
 		get isRouter() {
-			return isRouter;
+			return true;
 		}
 	};
 }

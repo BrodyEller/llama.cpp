@@ -9,7 +9,6 @@
 	import { useDebouncedSearch } from '$lib/hooks/use-debounced-search.svelte';
 	import { usePickerNavigation } from '$lib/hooks/use-picker-navigation.svelte';
 	import { useScrollActiveRow } from '$lib/hooks/use-scroll-active-row.svelte';
-	import { ToolsService } from '$lib/services/tools.service';
 	import { conversationsStore, toolsStore } from '$lib/stores';
 	import type { GlobEntry } from '$lib/types';
 	import {
@@ -211,27 +210,10 @@
 	}
 
 	// Resolve a browser-picked folder name (which exposes only the leaf name)
-	// to a server-side absolute path; null when the server cannot locate it,
-	// so the caller fails visibly instead of committing a bare leaf name.
+	// to a server-side absolute path. No server-side file_glob_search tool
+	// exists on an OpenAI-compatible server, so this always returns null.
 	async function resolveNativeName(name: string): Promise<string | null> {
-		try {
-			const res = await ToolsService.executeToolRaw(BuiltInTool.SERVER_FILE_GLOB_SEARCH, {
-				include: buildCaseInsensitiveGlob(name),
-				limit: SEARCH.NATIVE_LIMIT,
-				max_depth: SEARCH.NATIVE_MAX_DEPTH,
-				path: homeBase ?? HOME_TILDE,
-				type: GlobSearchType.DIR
-			});
-			const base = typeof res.base === 'string' ? res.base : '';
-			const entries = Array.isArray(res.entries) ? (res.entries as GlobEntry[]) : [];
-			const match = entries.find(
-				(e) => lastPathSegment(e.path).toLowerCase() === name.toLowerCase()
-			);
-
-			return match ? joinPath(base, match.path) : null;
-		} catch {
-			return null;
-		}
+		return null;
 	}
 
 	async function browseNative() {

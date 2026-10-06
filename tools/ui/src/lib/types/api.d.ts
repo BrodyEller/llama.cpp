@@ -46,12 +46,12 @@ export interface ApiContextSizeError {
 
 export interface ApiErrorResponse {
 	error:
-		| ApiContextSizeError
-		| {
-				code: number;
-				message: string;
-				type?: string;
-		  };
+	| ApiContextSizeError
+	| {
+		code: number;
+		message: string;
+		type?: string;
+	};
 }
 
 export interface ApiChatMessageData {
@@ -100,6 +100,12 @@ export interface ApiModelDataEntry {
 	tags?: string[];
 	/** Modality capabilities, reported by the router for every model regardless of load state */
 	architecture?: ApiModelArchitecture;
+	/** Capability strings (optional, non-standard; OpenAI-compatible servers) */
+	capabilities?: string[];
+	/** Description (optional, non-standard; OpenAI-compatible servers) */
+	description?: string;
+	/** Model details (optional, non-standard; OpenAI-compatible servers) */
+	details?: ApiModelDetails['details'];
 	/** Legacy meta field (may be present in older responses) */
 	meta?: Record<string, unknown> | null;
 }
@@ -359,6 +365,8 @@ export interface ApiChatCompletionStreamChunk {
 		delta: {
 			content?: string;
 			reasoning_content?: string;
+			/** vLLM streams thinking under this field name */
+			reasoning?: string;
 			model?: string;
 			tool_calls?: ApiChatCompletionToolCallDelta[];
 		};
@@ -382,6 +390,8 @@ export interface ApiChatCompletionResponse {
 		message: {
 			content: string;
 			reasoning_content?: string;
+			/** vLLM returns thinking under this field name */
+			reasoning?: string;
 			model?: string;
 			tool_calls?: ApiChatCompletionToolCall[];
 		};

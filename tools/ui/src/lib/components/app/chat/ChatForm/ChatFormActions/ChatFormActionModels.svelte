@@ -27,7 +27,6 @@
 		useGlobalSelection = false
 	}: Props = $props();
 
-	let isRouter = $derived(serverStore.isRouterMode);
 	let isOffline = $derived(!!serverStore.error);
 
 	let conversationModel = $derived(
@@ -61,17 +60,6 @@
 			}
 
 			lastSyncedConversationModel = conversationModel;
-		} else if (
-			isRouter &&
-			!modelsStore.selectedModelId &&
-			modelsStore.loadedModelIds.length > 0 &&
-			conversationsStore.activeMessages.length > 0 &&
-			!conversationModel
-		) {
-			lastSyncedConversationModel = null;
-			const first = modelsStore.models.find((m) => modelsStore.loadedModelIds.includes(m.model));
-
-			if (first) modelsStore.selectModelById(first.id);
 		}
 	});
 
@@ -112,13 +100,11 @@
 	});
 
 	$effect(() => {
-		hasModelSelected = !isRouter || !!conversationModel || !!modelsStore.selectedModelId;
+		hasModelSelected = !!conversationModel || !!modelsStore.selectedModelId;
 	});
 
 	$effect(() => {
-		if (!isRouter) {
-			isSelectedModelInCache = true;
-		} else if (conversationModel) {
+		if (conversationModel) {
 			isSelectedModelInCache = modelsStore.models.some(
 				(option) => option.model === conversationModel
 			);

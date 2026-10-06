@@ -1,13 +1,13 @@
 /**
- * serverStore - Server connection state, configuration and role detection
+ * serverStore - Server connection state
  *
- * Owns the connection state and properties fetched from /props, plus MODEL
- * vs ROUTER role detection and server-wide generation defaults. Uses
- * PropsService for the /props fetch.
+ * Owns the connection state for an OpenAI-compatible server. The server is
+ * always treated as multi-model (OpenAI /v1/models), so the legacy MODEL vs
+ * ROUTER distinction is collapsed: isRouterMode is always true and
+ * isModelMode is always false. Connection health is probed via /v1/models.
  */
 
-import { ServerRole } from '$lib/enums';
-import { PropsService } from '$lib/services/props.service';
+import { API_MODELS } from '$lib/constants';
 import { ApiError } from '$lib/utils';
 
 const LOADING_RETRY_INTERVAL_MS = 1000;
@@ -15,45 +15,32 @@ const LOADING_RETRY_INTERVAL_MS = 1000;
 class ServerStore {
 	error = $state<string | null>(null);
 	loading = $state(false);
-	props = $state<ApiLlamaCppServerProps | null>(null);
-	role = $state<ServerRole | null>(null);
 	status = $state<number | null>(null);
 	private fetchPromise: Promise<void> | null = null;
 	private retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-	get contextSize(): number | null {
-		const nCtx = this.props?.default_generation_settings?.n_ctx;
-
-		return typeof nCtx === 'number' ? nCtx : null;
-	}
-
-	get defaultParams(): ApiLlamaCppServerProps['default_generation_settings']['params'] | null {
-		return this.props?.default_generation_settings?.params || null;
-	}
-
+	/** OpenAI-compatible servers are always multi-model. */
 	get isModelMode(): boolean {
-		return this.role === ServerRole.MODEL;
+		return false;
 	}
 
+	/** OpenAI-compatible servers are always multi-model. */
 	get isRouterMode(): boolean {
-		return this.role === ServerRole.ROUTER;
-	}
-
-	get uiSettings(): Record<string, string | number | boolean> | undefined {
-		return this.props?.ui_settings ?? this.props?.webui_settings;
+		return true;
 	}
 
 	clear(): void {
 		this.clearRetryTimer();
-		this.props = null;
 		this.error = null;
 		this.status = null;
 		this.loading = false;
-		this.role = null;
 		this.fetchPromise = null;
 	}
 
 	/**
+	 * Probe the OpenAI-compatible /v1/models endpoint to confirm the server is
+	 * reachable. Sets error/status on failure.
+	 *
 	 * @param background - Set by the automatic "still loading" poll. Skips the
 	 * `loading` flag flip so the UI doesn't bounce between the full loading
 	 * splash and the chat screen every retry tick.
@@ -75,16 +62,18 @@ class ServerStore {
 
 		const fetchPromise = (async () => {
 			try {
-				const props = await PropsService.fetch();
+				const res = await fetch(API_MODELS.LIST, { headers: { Accept: 'application/json' } });
 
-				this.props = props;
+				if (!res.ok) {
+					throw new ApiError(`Server returned HTTP ${res.status}`, res.status);
+				}
+
 				this.error = null;
 				this.status = null;
-				this.detectRole(props);
 			} catch (error: unknown) {
 				this.error = error instanceof Error ? error.message : String(error);
 				this.status = error instanceof ApiError ? error.status : null;
-				console.error('Error fetching server properties:', error);
+				console.error('Error connecting to server:', error);
 
 				if (this.status === 503) {
 					this.scheduleRetry();
@@ -106,15 +95,6 @@ class ServerStore {
 		if (this.retryTimer) {
 			clearTimeout(this.retryTimer);
 			this.retryTimer = null;
-		}
-	}
-
-	private detectRole(props: ApiLlamaCppServerProps): void {
-		const newRole = props?.role === ServerRole.ROUTER ? ServerRole.ROUTER : ServerRole.MODEL;
-
-		if (this.role !== newRole) {
-			this.role = newRole;
-			console.info(`Server running in ${newRole === ServerRole.ROUTER ? 'ROUTER' : 'MODEL'} mode`);
 		}
 	}
 

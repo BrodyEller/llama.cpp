@@ -8,6 +8,7 @@
 	import { PwaMetaTags, PwaRefreshAlert } from '$lib/components/pwa';
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import {
+		API_MODELS,
 		FAVICON_PATHS,
 		FAVICON_SELECTORS,
 		HEADERS,
@@ -167,7 +168,7 @@
 					[HEADERS.AUTHORIZATION]: `${HEADERS.BEARER}${apiKey.trim()}`
 				};
 
-				fetch(`${base}/props`, { headers })
+				fetch(`${base}${API_MODELS.LIST}`, { headers })
 					.then((response) => {
 						if (response.status === 401 || response.status === 403) {
 							window.location.reload();
@@ -201,25 +202,11 @@
 		updateFavicon();
 	});
 
-	// Initialize server properties on app load (run once)
+	// Initialize server connection on app load (run once)
 	$effect(() => {
-		// Only fetch if we don't already have props
-		if (!serverStore.props) {
-			untrack(() => {
-				serverStore.fetch();
-			});
-		}
-	});
-
-	// Sync settings when server props are loaded
-	$effect(() => {
-		const serverProps = serverStore.props;
-
-		if (serverProps) {
-			untrack(() => {
-				settingsStore.syncWithServerDefaults();
-			});
-		}
+		untrack(() => {
+			serverStore.fetch();
+		});
 	});
 
 	// Inject custom CSS at runtime through an action on the head style node
@@ -229,39 +216,6 @@
 			node.textContent = (settingsStore.config.customCss as string | undefined) ?? '';
 		});
 	}
-
-	// Fetch router models when in router mode (for status and modalities)
-	// Wait for models to be loaded first, run only once
-	let routerModelsFetched = false;
-
-	$effect(() => {
-		const isRouter = serverStore.isRouterMode;
-		const modelsCount = modelsStore.models.length;
-
-		// Only fetch router models once when we have models loaded and in router mode
-		if (isRouter && modelsCount > 0 && !routerModelsFetched) {
-			routerModelsFetched = true;
-
-			untrack(() => {
-				modelsStore.fetchRouterModels();
-			});
-		}
-	});
-
-	// Live model status and load progress via the /models/sse feed (router mode)
-	$effect(() => {
-		if (!browser) return;
-
-		if (!serverStore.isRouterMode) return;
-
-		untrack(() => {
-			modelsStore.status.subscribe();
-		});
-
-		return () => {
-			modelsStore.status.unsubscribe();
-		};
-	});
 
 	// Background MCP server health checks on app load.
 	// Health-check every configured server with a URL - including disabled ones -

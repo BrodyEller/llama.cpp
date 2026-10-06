@@ -31,7 +31,6 @@ import {
 import { ChatService } from '$lib/services';
 import { ReadMediaService } from '$lib/services/read-media.service';
 import { SandboxService } from '$lib/services/sandbox.service';
-import { ToolsService } from '$lib/services/tools.service';
 // direct imports between stores, not via the barrel, to avoid circular deps
 import { AgenticGates } from '$lib/stores/agentic/gates.svelte';
 import { conversationsStore } from '$lib/stores/conversations/index.svelte';
@@ -772,11 +771,7 @@ class AgenticStore {
 
 				let result = '';
 				let toolSuccess = true;
-				let createdToolResultMessageId: string | null = null;
 
-				// Streaming tools (currently only exec_shell_command): mark
-				// the session so the matching renderer can switch to live mode.
-				// Cleared unconditionally below.
 				this.updateSession(conversationId, { executingToolCallId: toolCall.id });
 
 				if (permission === ToolPermissionDecision.DENY) {
@@ -784,48 +779,7 @@ class AgenticStore {
 					toolSuccess = false;
 				} else {
 					try {
-						if (
-							toolSource === ToolSource.SERVER &&
-							toolName === BuiltInTool.SERVER_EXEC_SHELL_COMMAND &&
-							createToolResultMessage &&
-							updateToolResultMessage
-						) {
-							const args = this.parseToolArguments(toolCall.function.arguments);
-							const cwd = conversationsStore.activeConversation?.cwd;
-							const msg = await createToolResultMessage(toolCall.id, '', undefined, cwd);
-
-							createdToolResultMessageId = msg.id;
-
-							let accumulated = '';
-
-							for await (const ev of ToolsService.streamTool(toolName, args, signal, cwd)) {
-								if (ev.chunk !== null) {
-									accumulated += ev.chunk;
-									await updateToolResultMessage(msg.id, accumulated);
-								}
-
-								if (ev.done) {
-									if (ev.error) {
-										accumulated = accumulated
-											? `${accumulated}\nError: ${ev.error}`
-											: `Error: ${ev.error}`;
-										await updateToolResultMessage(msg.id, accumulated);
-										toolSuccess = false;
-									}
-
-									break;
-								}
-							}
-							result = accumulated;
-						} else if (toolSource === ToolSource.SERVER) {
-							const args = this.parseToolArguments(toolCall.function.arguments);
-							const cwd = conversationsStore.activeConversation?.cwd;
-							const executionResult = await ToolsService.executeTool(toolName, args, signal, cwd);
-
-							result = executionResult.content;
-
-							if (executionResult.isError) toolSuccess = false;
-						} else if (toolSource === ToolSource.BROWSER) {
+						if (toolSource === ToolSource.BROWSER) {
 							const args = this.parseToolArguments(toolCall.function.arguments);
 
 							let executionResult: ToolExecutionResult;
@@ -874,10 +828,6 @@ class AgenticStore {
 							? `${result}\nError: ${error instanceof Error ? error.message : String(error)}`
 							: `Error: ${error instanceof Error ? error.message : String(error)}`;
 						toolSuccess = false;
-
-						if (createdToolResultMessageId && updateToolResultMessage) {
-							await updateToolResultMessage(createdToolResultMessageId, result);
-						}
 					}
 				}
 
@@ -904,21 +854,11 @@ class AgenticStore {
 
 				const { attachments, cleanedResult } = this.extractBase64Attachments(result);
 
-				// For streaming tools the result message was created empty
-				// at the start of execution and updated in place as chunks
-				// arrived via updateToolResultMessage. Skip the second
-				// create call - just attach any base64 attachments found in
-				// the final accumulator (rare, since chunks usually don't
-				// carry image data URIs) and emit the attachments callback.
+				// Create the tool result message, attaching any base64
+				// attachments found in the final accumulator.
 				let toolResultMessage: DatabaseMessage | undefined;
 
-				if (createdToolResultMessageId) {
-					toolResultMessage = { id: createdToolResultMessageId } as DatabaseMessage;
-
-					if (attachments.length > 0 && updateToolResultMessage) {
-						await updateToolResultMessage(createdToolResultMessageId, cleanedResult, attachments);
-					}
-				} else if (createToolResultMessage) {
+				if (createToolResultMessage) {
 					toolResultMessage = await createToolResultMessage(
 						toolCall.id,
 						cleanedResult,

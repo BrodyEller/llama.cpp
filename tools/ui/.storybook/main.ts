@@ -20,6 +20,9 @@ const config: StorybookConfig = {
 		config.server.fs = config.server.fs || {};
 		config.server.fs.allow = [...(config.server.fs.allow || []), resolve(__dirname, '../tests')];
 		return config;
+	},
+	core: {
+		disableTelemetry: true
 	}
 };
 export default config;

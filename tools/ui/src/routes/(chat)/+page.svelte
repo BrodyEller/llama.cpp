@@ -34,18 +34,6 @@
 			if (model) {
 				try {
 					await modelsStore.selectModelById(model.id);
-
-					// with ?load=true in router mode, start loading right away so the
-					// model is ready sooner; not awaited so the UI stays usable
-					if (
-						loadParam === 'true' &&
-						serverStore.isRouterMode &&
-						!modelsStore.isModelLoaded(model.id)
-					) {
-						modelsStore.status
-							.load(model.id)
-							.catch((error) => console.error('Failed to load model:', error));
-					}
 				} catch (error) {
 					console.error('Failed to select model:', error);
 					requestedModelName = modelParam;

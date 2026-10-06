@@ -1,5 +1,4 @@
 <script lang="ts">
-	import ModelLoadHighlight from './ModelLoadHighlight.svelte';
 	import type { ModelItem } from './utils';
 	import { ChevronDown, Lightbulb, Loader2 } from '@lucide/svelte';
 	import {
@@ -13,11 +12,10 @@
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import { MODEL_SELECTOR_ICON, SETTINGS_KEYS } from '$lib/constants';
-	import { KeyboardKey, ServerModelStatus } from '$lib/enums';
+	import { KeyboardKey } from '$lib/enums';
 	import { useModelsSelector } from '$lib/hooks/use-models-selector.svelte';
 	import { useReasoningMenu } from '$lib/hooks/use-reasoning-menu.svelte';
 	import { modelsStore, settingsStore } from '$lib/stores';
-	import { modelLoadFraction } from '$lib/utils';
 
 	interface Props {
 		class?: string;
@@ -94,7 +92,6 @@
 	let visualOrder = $derived.by(() => {
 		const order: string[] = [];
 
-		for (const item of ms.groupedFilteredOptions.loaded) order.push(item.option.id);
 		for (const item of ms.groupedFilteredOptions.favorites) order.push(item.option.id);
 		for (const group of ms.groupedFilteredOptions.available) {
 			for (const item of group.items) order.push(item.option.id);
@@ -133,12 +130,7 @@
 			return;
 		}
 
-		const model = modelsStore.routerModels.find((m) => m.id === modelId);
-		const status = model?.status?.value as ServerModelStatus | undefined;
-
-		if (status === ServerModelStatus.LOADING) return;
-
-		await modelsStore.status.unload(modelId);
+		// No-op: models are not unloaded on an OpenAI-compatible server.
 	}
 
 	export function open() {
@@ -189,17 +181,6 @@
 		{/if}
 	{:else}
 		{@const selectedOption = ms.getDisplayOption()}
-		{@const triggerModel = selectedOption?.model}
-		{@const triggerStatus = triggerModel
-			? modelsStore.routerModels.find((m) => m.id === triggerModel)?.status?.value
-			: undefined}
-		{@const triggerLoading =
-			!!triggerModel &&
-			(triggerStatus === ServerModelStatus.LOADING ||
-				modelsStore.status.isOperationInProgress(triggerModel))}
-		{@const triggerLoadPercent = triggerLoading
-			? Math.round(modelLoadFraction(modelsStore.status.getLoadProgress(triggerModel)) * 100)
-			: 0}
 
 		{#if ms.isRouter}
 			<DropdownMenu.Root bind:open={isOpen} onOpenChange={ms.handleOpenChange}>
@@ -246,10 +227,6 @@
 									<Loader2 class="h-3 w-3.5 shrink-0 animate-spin" />
 								{:else}
 									<ChevronDown class="h-3 w-3.5 shrink-0" />
-								{/if}
-
-								{#if triggerLoading}
-									<ModelLoadHighlight percent={triggerLoadPercent} />
 								{/if}
 							</DropdownMenu.Trigger>
 						{/snippet}

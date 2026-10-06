@@ -9,7 +9,7 @@
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { ICON_CLASS_DEFAULT, SETTING_CONFIG_INFO, SETTINGS_KEYS } from '$lib/constants';
 	import { SettingsFieldType } from '$lib/enums/settings.enums';
-	import { modelsStore, serverStore, settingsStore } from '$lib/stores';
+	import { modelsStore, settingsStore } from '$lib/stores';
 	import { normalizeFloatingPoint } from '$lib/utils/precision';
 	import type { Component } from 'svelte';
 
@@ -25,20 +25,8 @@
 	let currentModelParams = $derived.by(() => {
 		void modelsStore.props.cacheVersion;
 
-		if (serverStore.isRouterMode) {
-			const currentModelName = modelsStore.selectedModelName;
-
-			if (currentModelName) {
-				const currentModelProps = modelsStore.props.getModelProps(currentModelName);
-
-				return (currentModelProps?.default_generation_settings?.params ?? {}) as Record<
-					string,
-					unknown
-				>;
-			}
-		}
-
-		return (serverStore.defaultParams ?? {}) as Record<string, unknown>;
+		// On an OpenAI-compatible server there are no server-side default params.
+		return {} as Record<string, unknown>;
 	});
 </script>
 

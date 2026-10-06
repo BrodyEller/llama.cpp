@@ -28,12 +28,10 @@ export function useReasoningMenu(): UseReasoningMenuReturn {
 	const conversationModel = $derived(
 		getConversationModel(conversationsStore.activeMessages as DatabaseMessage[])
 	);
-	// a router chat can carry reasoning from an earlier turn before the props
+	// a chat can carry reasoning from an earlier turn before the props
 	// cache is primed, so a model that already produced thinking still qualifies
 	const modelSupportsThinkingFromMessages = $derived.by(() => {
-		const modelId = serverStore.isRouterMode
-			? modelsStore.selectedModelName || conversationModel
-			: null;
+		const modelId = modelsStore.selectedModelName || conversationModel;
 
 		if (!modelId) return false;
 
@@ -42,19 +40,14 @@ export function useReasoningMenu(): UseReasoningMenuReturn {
 		);
 	});
 	const modelSupportsThinking = $derived.by(() => {
-		void modelsStore.loadedModelIds;
 		void modelsStore.props.cacheVersion;
 
-		if (serverStore.isRouterMode) {
-			const modelId = modelsStore.selectedModelName || conversationModel;
+		const modelId = modelsStore.selectedModelName || conversationModel;
 
-			return (
-				modelsStore.props.checkModelSupportsThinking(modelId ?? '') ||
-				modelSupportsThinkingFromMessages
-			);
-		}
-
-		return modelsStore.props.supportsThinking || modelSupportsThinkingFromMessages;
+		return (
+			modelsStore.props.checkModelSupportsThinking(modelId ?? '') ||
+			modelSupportsThinkingFromMessages
+		);
 	});
 	const currentEffort = $derived(conversationsStore.preferences.getReasoningEffort());
 	const thinkingEnabled = $derived(

@@ -1,25 +1,24 @@
 /**
- * ModelPropsManager - Per-model props cache, modalities and thinking detection
+ * ModelPropsManager - Per-model modality and thinking detection
  *
- * Owns the /props?model=<id> cache with TTL, the modality views over it,
- * and chat-template thinking detection. Created and owned by modelsStore;
- * the host owns the model lists that fetched modalities are mirrored onto.
- *
- * **API Inconsistency Workaround:**
- * In MODEL mode, `/props` returns modalities for the single model.
- * In ROUTER mode, `/props` has no modalities - must use `/props?model=<id>` per model.
+ * OpenAI-compatible servers do not advertise vision/audio/video capabilities
+ * in /v1/models, so modalities are inferred from the model name via
+ * model-capabilities heuristics. A configurable per-model capability map in
+ * settings can override these heuristics. Created and owned by modelsStore.
  */
 
-import { MODEL_PROPS_CACHE } from '$lib/constants';
-import { FileTypeCategory, ModelModality } from '$lib/enums';
-import { PropsService } from '$lib/services/props.service';
-// direct imports between stores, not via the barrel, to avoid circular deps
-import { serverStore } from '$lib/stores/server.svelte';
-// deep imports, not the '$lib/utils' barrel: it re-exports modules that reach back
-// into the stores, and going through it here would read a half-built module
-import { TTLCache } from '$lib/utils/cache-ttl';
-import { detectThinkingSupport } from '$lib/utils/chat-template-thinking-detector';
-import { SvelteSet } from 'svelte/reactivity';
+import { SETTINGS_KEYS } from '$lib/constants';
+import { ModelModality } from '$lib/enums';
+import { settingsStore } from '$lib/stores/settings/index.svelte';
+import {
+	findModalityOverride,
+	type ModelModalityOverride,
+	modelNameSupportsAudio,
+	modelNameSupportsThinking,
+	modelNameSupportsVideo,
+	modelNameSupportsVision,
+	parseModalityOverrides
+} from '$lib/utils/model-capabilities';
 
 /**
  * The slice of modelsStore the manager reads. Kept narrow on purpose so it
@@ -27,184 +26,101 @@ import { SvelteSet } from 'svelte/reactivity';
  * structurally.
  */
 export interface ModelPropsHost {
-	/** Model rows the manager mirrors fetched modalities onto. */
+	/** Model rows the manager mirrors inferred modalities onto. */
 	models: ModelOption[];
 	readonly selectedModelName: string | null;
-	readonly loadedModelIds: string[];
-	isModelLoaded(modelId: string): boolean;
 }
 
 export class ModelPropsManager {
-	/** Version counter for the cache - bumped on writes so $derived consumers recompute. */
+	/** Version counter - bumped on writes so $derived consumers recompute. */
 	cacheVersion = $state(0);
-	/**
-	 * Model-specific props cache with TTL.
-	 * Key: modelId, Value: props data including modalities.
-	 */
-	private cache = new TTLCache<string, ApiLlamaCppServerProps>({
-		maxEntries: MODEL_PROPS_CACHE.MAX_ENTRIES,
-		ttlMs: MODEL_PROPS_CACHE.TTL_MS
-	});
-	private fetching = new SvelteSet<string>();
+	// Plain Set on purpose: fetchModelProps is synchronous inference, and this
+	// is only a re-entrancy guard. A reactive set would let calling effects
+	// subscribe to it, then the sync add/delete would re-trigger them forever.
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity -- see above
+	private fetching = new Set<string>();
 
 	/**
-	 * Whether the selected model's chat template supports thinking/reasoning.
-	 * Uses heuristic detection on the model's chat_template from /props.
-	 *
-	 * - MODEL mode: the global /props already describes the single loaded model,
-	 *   so its chat_template is used directly and no per-model cache is involved
-	 * - ROUTER mode: fetches /props?model=<id> for the selected model (cached),
-	 *   triggering an async fetch if not yet cached
+	 * Whether the selected model supports thinking/reasoning.
+	 * Override setting first, then the model name heuristic.
 	 */
 	get supportsThinking(): boolean {
-		if (!serverStore.isRouterMode) {
-			return detectThinkingSupport(serverStore.props?.chat_template ?? '');
-		}
-
 		const modelId = this.host.selectedModelName;
 
 		if (!modelId) return false;
 
-		if (!this.cache.get(modelId)) {
-			this.fetchModelProps(modelId);
-		}
-
-		const props = this.getModelProps(modelId);
-
-		return detectThinkingSupport(props?.chat_template ?? '');
-	}
-
-	/** Map the router modalities, the only source available while a model is not loaded. */
-	buildArchitectureModalities(
-		architecture: ApiModelDataEntry['architecture']
-	): ModelModalities | undefined {
-		if (!architecture) return undefined;
-
-		const inputs = architecture.input_modalities;
-
-		return {
-			audio: inputs.includes(FileTypeCategory.AUDIO),
-			video: inputs.includes(FileTypeCategory.VIDEO),
-			vision: inputs.includes(FileTypeCategory.IMAGE)
-		};
+		return this.checkModelSupportsThinking(modelId);
 	}
 
 	/**
 	 * Check if a specific model supports thinking.
-	 * In MODEL mode the global /props describes the single loaded model.
-	 * In ROUTER mode, fetches model props if not cached.
+	 * Override setting first, then the model name heuristic.
 	 */
 	checkModelSupportsThinking(modelId: string): boolean {
-		if (!serverStore.isRouterMode) {
-			return detectThinkingSupport(serverStore.props?.chat_template ?? '');
-		}
-
 		if (!modelId) return false;
 
-		if (!this.cache.get(modelId)) {
-			this.fetchModelProps(modelId);
-		}
+		const override = this.getOverride(modelId);
 
-		const props = this.getModelProps(modelId);
+		if (override?.thinking !== undefined) return override.thinking;
 
-		return detectThinkingSupport(props?.chat_template ?? '');
+		return modelNameSupportsThinking(modelId);
 	}
 
-	constructor(private host: ModelPropsHost) {}
-
-	/** Fetch modalities for all loaded models from /props endpoint. */
-	async fetchModalitiesForLoadedModels(): Promise<void> {
-		const loadedModelIds = this.host.loadedModelIds;
-
-		if (loadedModelIds.length === 0) return;
-
-		const propsPromises = loadedModelIds.map((modelId) => this.fetchModelProps(modelId));
-
-		try {
-			const results = await Promise.all(propsPromises);
-
-			this.host.models = this.host.models.map((model) => {
-				const modelIndex = loadedModelIds.indexOf(model.model);
-
-				if (modelIndex === -1) return model;
-
-				const props = results[modelIndex];
-
-				if (!props?.modalities) return model;
-
-				return { ...model, modalities: this.buildModalities(props.modalities) };
-			});
-
-			this.cacheVersion++;
-		} catch (error) {
-			console.warn('Failed to fetch modalities for loaded models:', error);
-		}
-	}
+	constructor(private host: ModelPropsHost) { }
 
 	/**
-	 * Fetch props for a specific model from /props endpoint.
-	 * Uses caching to avoid redundant requests.
-	 *
-	 * In ROUTER mode, this only fetches props if the model is loaded,
-	 * since unloaded models return 400 from /props endpoint.
-	 *
-	 * @param modelId - Model identifier to fetch props for
-	 * @returns Props data or null if fetch failed or model not loaded
+	 * Infer modalities for a model from its name and mirror it onto the model
+	 * row. No-op if the model already has explicit modalities.
 	 */
-	async fetchModelProps(modelId: string): Promise<ApiLlamaCppServerProps | null> {
-		const cached = this.cache.get(modelId);
-
-		if (cached) return cached;
-
-		if (serverStore.isRouterMode && !this.host.isModelLoaded(modelId)) {
-			return null;
-		}
+	async fetchModelProps(modelId: string): Promise<null> {
+		if (!modelId) return null;
 
 		if (this.fetching.has(modelId)) return null;
 
 		this.fetching.add(modelId);
 
 		try {
-			const props = await PropsService.fetchForModel(modelId);
+			let changed = false;
 
-			this.cache.set(modelId, props);
-			this.cacheVersion++;
+			const next = this.host.models.map((model) => {
+				if (model.model !== modelId && model.id !== modelId) return model;
 
-			return props;
-		} catch (error) {
-			console.warn(`Failed to fetch props for model ${modelId}:`, error);
+				if (model.modalities) return model;
 
-			return null;
+				changed = true;
+
+				return {
+					...model,
+					modalities: this.buildModalitiesFromName(model.model)
+				};
+			});
+
+			// Only reassign when a model actually changed. Reassigning to a new
+			// array identity every call would recompute activeModelId and
+			// re-trigger the caller's effect, creating an infinite loop.
+			if (changed) {
+				this.host.models = next;
+				this.cacheVersion++;
+			}
 		} finally {
 			this.fetching.delete(modelId);
 		}
+
+		return null;
 	}
 
-	getModelContextSize(modelId: string): number | null {
-		const props = this.getModelProps(modelId);
-		const nCtx = props?.default_generation_settings?.n_ctx;
-
-		return typeof nCtx === 'number' ? nCtx : null;
+	getModelContextSize(_modelId: string): number | null {
+		// OpenAI-compatible servers do not expose context size in /v1/models.
+		return null;
 	}
 
 	getModelModalities(modelId: string): ModelModalities | null {
-		if (!serverStore.isRouterMode && serverStore.props?.modalities) {
-			return this.buildModalities(serverStore.props.modalities);
-		}
-
 		const model = this.host.models.find((m) => m.model === modelId || m.id === modelId);
+		const base = model?.modalities ?? this.buildModalitiesFromName(modelId);
 
-		if (model?.modalities) {
-			return model.modalities;
-		}
-
-		const props = this.cache.get(modelId);
-
-		if (props?.modalities) {
-			return this.buildModalities(props.modalities);
-		}
-
-		return null;
+		// Apply the settings override on top so editing it updates gating live,
+		// even when modalities were cached from the name heuristic earlier.
+		return this.applyOverride(base, modelId);
 	}
 
 	getModelModalitiesArray(modelId: string): ModelModality[] {
@@ -223,8 +139,9 @@ export class ModelPropsManager {
 		return result;
 	}
 
-	getModelProps(modelId: string): ApiLlamaCppServerProps | null {
-		return this.cache.get(modelId);
+	getModelProps(_modelId: string): null {
+		// No /props cache on OpenAI-compatible servers.
+		return null;
 	}
 
 	isModelPropsFetching(modelId: string): boolean {
@@ -244,30 +161,45 @@ export class ModelPropsManager {
 	}
 
 	/**
-	 * Update modalities for a specific model.
-	 * Called when a model is loaded or when we need fresh modality data.
+	 * Update modalities for a specific model from its name.
 	 */
 	async updateModelModalities(modelId: string): Promise<void> {
-		const props = await this.fetchModelProps(modelId);
-
-		if (!props?.modalities) return;
-
-		this.host.models = this.host.models.map((model) =>
-			model.model === modelId
-				? { ...model, modalities: this.buildModalities(props.modalities!) }
-				: model
-		);
-
-		this.cacheVersion++;
+		await this.fetchModelProps(modelId);
 	}
 
-	private buildModalities(
-		modalities: NonNullable<ApiLlamaCppServerProps['modalities']>
-	): ModelModalities {
+	/**
+	 * Merge override flags over a base modality set. Only flags the override
+	 * explicitly sets are applied.
+	 */
+	private applyOverride(base: ModelModalities, modelId: string): ModelModalities {
+		const override = this.getOverride(modelId);
+
+		if (!override) return base;
+
 		return {
-			audio: modalities.audio ?? false,
-			video: modalities.video ?? false,
-			vision: modalities.vision ?? false
+			audio: override.audio ?? base.audio,
+			video: override.video ?? base.video,
+			vision: override.vision ?? base.vision
 		};
+	}
+
+	private buildModalitiesFromName(modelName: string): ModelModalities {
+		return {
+			audio: modelNameSupportsAudio(modelName),
+			video: modelNameSupportsVideo(modelName),
+			vision: modelNameSupportsVision(modelName)
+		};
+	}
+
+	/**
+	 * Read the per-model override from the modelModalityOverrides setting.
+	 * Reads settingsStore.config reactively so callers recompute when it changes.
+	 */
+	private getOverride(modelId: string): ModelModalityOverride | null {
+		if (!modelId) return null;
+
+		const raw = settingsStore.config[SETTINGS_KEYS.MODEL_MODALITY_OVERRIDES] as string | undefined;
+
+		return findModalityOverride(modelId, parseModalityOverrides(raw));
 	}
 }

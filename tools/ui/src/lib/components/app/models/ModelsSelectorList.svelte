@@ -45,14 +45,6 @@
 	/>
 {/snippet}
 
-{#if groups.loaded.length > 0}
-	<p class={sectionHeaderClass}>Loaded models</p>
-
-	{#each groups.loaded as item (`loaded-${item.option.id}`)}
-		{@render render(item, false)}
-	{/each}
-{/if}
-
 {#if groups.favorites.length > 0}
 	<p class={sectionHeaderClass}>Favorite models</p>
 

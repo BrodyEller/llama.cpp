@@ -20,10 +20,8 @@ export { default as SettingsChatDesktopSidebar } from './SettingsChatDesktopSide
 export { default as SettingsChatMobileHeader } from './SettingsChatMobileHeader.svelte';
 
 /**
- * Badge indicating parameter source for sampling settings. Shows one of:
- * - **Custom**: User has explicitly set this value (orange badge)
- * - **Server Props**: Using default from `/props` endpoint (blue badge)
- * - **Default**: Using app default, server props unavailable (gray badge)
+ * Badge indicating parameter source for sampling settings. Shows a
+ * **Custom** badge when the user has explicitly set a value.
  * Updates in real-time as user types to show immediate feedback.
  */
 export { default as SettingsChatParameterSourceIndicator } from './SettingsChat/SettingsChatParameterSourceIndicator.svelte';

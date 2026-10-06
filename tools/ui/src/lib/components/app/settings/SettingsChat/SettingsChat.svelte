@@ -52,13 +52,11 @@
 	let fetchInitiated = false;
 
 	$effect(() => {
-		if (serverStore.isRouterMode && currentSection.fields?.length && !fetchInitiated) {
+		if (currentSection.fields?.length && !fetchInitiated) {
 			fetchInitiated = true;
 
 			void modelsStore
 				.fetch()
-				.then(() => modelsStore.fetchRouterModels())
-				.then(() => modelsStore.props.fetchModalitiesForLoadedModels())
 				.then(() => modelsStore.ensureFirstModelSelected());
 		}
 	});

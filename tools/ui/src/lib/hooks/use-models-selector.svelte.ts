@@ -1,6 +1,6 @@
 import { filterModelOptions, groupModelOptions } from '$lib/components/app/models/utils';
 import { CHAT_INPUT_FOCUS_SELECTOR } from '$lib/constants';
-import { modelsStore, serverStore } from '$lib/stores';
+import { modelsStore } from '$lib/stores';
 import type { ModelOption } from '$lib/types/models';
 import { onMount } from 'svelte';
 
@@ -42,32 +42,26 @@ export interface UseModelsSelectorReturn {
  *
  * Used by both the desktop dropdown (`ModelsSelectorDropdown`)
  * and the mobile sheet (`ModelsSelectorSheet`) to avoid
- * duplicating store derivations, selection handling, and model loading.
+ * duplicating store derivations and selection handling.
  */
 export function useModelsSelector(opts: UseModelsSelectorOptions): UseModelsSelectorReturn {
-	const options = $derived(
-		modelsStore.models.filter((option) => {
-			const modelProps = modelsStore.props.getModelProps(option.model);
-
-			return modelProps?.ui !== false;
-		})
-	);
+	const options = $derived(modelsStore.models);
 	const loading = $derived(modelsStore.loading);
 	const updating = $derived(modelsStore.updating);
 	const activeId = $derived(modelsStore.selectedModelId);
-	const isRouter = $derived(serverStore.isRouterMode);
+	const isRouter = $derived(true);
 	const serverModel = $derived(modelsStore.singleModelName);
 	const currentModel = $derived(opts.currentModel());
 	const onModelChange = $derived(opts.onModelChange?.());
 	const isHighlightedCurrentModelActive = $derived.by(() => {
-		if (!isRouter || !currentModel) return false;
+		if (!currentModel) return false;
 
 		const currentOption = options.find((option) => option.model === currentModel);
 
 		return currentOption ? currentOption.id === activeId : false;
 	});
 	const isCurrentModelInCache = $derived.by(() => {
-		if (!isRouter || !currentModel) return true;
+		if (!currentModel) return true;
 
 		return options.some((option) => option.model === currentModel);
 	});
@@ -79,9 +73,7 @@ export function useModelsSelector(opts: UseModelsSelectorOptions): UseModelsSele
 
 	const filteredOptions = $derived(filterModelOptions(options, searchTerm));
 	const groupedFilteredOptions = $derived(
-		groupModelOptions(filteredOptions, modelsStore.favoriteModelIds, (m) =>
-			modelsStore.isModelLoaded(m)
-		)
+		groupModelOptions(filteredOptions, modelsStore.favoriteModelIds)
 	);
 
 	function handleInfoClick(modelName: string) {
@@ -98,19 +90,9 @@ export function useModelsSelector(opts: UseModelsSelectorOptions): UseModelsSele
 	function handleOpenChange(open: boolean) {
 		if (loading || updating) return;
 
-		if (isRouter) {
-			searchTerm = '';
+		searchTerm = '';
 
-			if (open) {
-				modelsStore.fetchRouterModels().then(() => {
-					modelsStore.props.fetchModalitiesForLoadedModels();
-				});
-			}
-
-			opts.onOpenChange?.(open);
-		} else {
-			showModelDialog = open;
-		}
+		opts.onOpenChange?.(open);
 	}
 
 	async function handleSelect(modelId: string) {
@@ -140,32 +122,12 @@ export function useModelsSelector(opts: UseModelsSelectorOptions): UseModelsSele
 			});
 		}
 
-		if (!onModelChange && isRouter && !modelsStore.isModelLoaded(option.model)) {
-			isLoadingModel = true;
-
-			modelsStore.status
-				.load(option.model)
-				.catch((error) => console.error('Failed to load model:', error))
-				.finally(() => (isLoadingModel = false));
+		if (!onModelChange) {
+			await modelsStore.selectModelById(option.id);
 		}
 	}
 
 	function getDisplayOption(): ModelOption | undefined {
-		if (!isRouter) {
-			const displayModel = serverModel || currentModel;
-
-			if (displayModel) {
-				return {
-					capabilities: [],
-					id: serverModel ? 'current' : 'offline-current',
-					model: displayModel,
-					name: displayModel.split('/').pop() || displayModel
-				};
-			}
-
-			return undefined;
-		}
-
 		if (currentModel) {
 			if (!isCurrentModelInCache) {
 				return {
