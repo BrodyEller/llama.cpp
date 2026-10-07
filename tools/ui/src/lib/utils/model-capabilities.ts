@@ -24,7 +24,6 @@ const VISION_PATTERNS = [
 	/\binternvl\b/i,
 	/\bdeepseek-?vl\b/i
 ];
-
 const AUDIO_PATTERNS = [
 	/\baudio\b/i,
 	/\bwhisper\b/i,
@@ -34,7 +33,6 @@ const AUDIO_PATTERNS = [
 	/\bspeech\b/i,
 	/\btranscri\b/i
 ];
-
 const VIDEO_PATTERNS = [
 	/\bvideo\b/i,
 	/\bvl\b/i,
@@ -43,7 +41,6 @@ const VIDEO_PATTERNS = [
 	/\bllava\b/i,
 	/\bomni\b/i
 ];
-
 const THINKING_PATTERNS = [
 	/\bthinking\b/i,
 	/\breason\b/i,
@@ -65,6 +62,14 @@ export interface ModelModalityOverride {
 	video?: boolean;
 	vision?: boolean;
 }
+
+/**
+ * Known models whose server does not advertise capabilities. User overrides
+ * from settings are matched first, these are the fallback.
+ */
+const BUILTIN_MODALITY_OVERRIDES: Record<string, ModelModalityOverride> = {
+	'Qwen3.8-Flash-Next': { vision: true }
+};
 
 /**
  * Parse the modelModalityOverrides setting (a JSON map of model name patterns
@@ -90,7 +95,8 @@ export function parseModalityOverrides(raw?: string): Record<string, ModelModali
 
 /**
  * Find the override entry whose key is a case-insensitive substring of the
- * model id. First match wins.
+ * model id. User overrides from settings are checked first, then the builtin
+ * table. First match wins.
  */
 export function findModalityOverride(
 	modelName: string,
@@ -98,10 +104,12 @@ export function findModalityOverride(
 ): ModelModalityOverride | null {
 	const lower = modelName.toLowerCase();
 
-	for (const [pattern, value] of Object.entries(overrides)) {
-		if (!value || typeof value !== 'object') continue;
+	for (const table of [overrides, BUILTIN_MODALITY_OVERRIDES]) {
+		for (const [pattern, value] of Object.entries(table)) {
+			if (!value || typeof value !== 'object') continue;
 
-		if (pattern && lower.includes(pattern.toLowerCase())) return value;
+			if (pattern && lower.includes(pattern.toLowerCase())) return value;
+		}
 	}
 
 	return null;
